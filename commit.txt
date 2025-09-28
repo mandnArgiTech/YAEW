@@ -1,0 +1,135 @@
+Git Commit Summary - YAEW Schematic Editor Improvements
+
+## Major Features Added
+
+### 1. Component Rotation and Mirroring System
+- Added Ctrl+R for 90-degree clockwise rotation
+- Added Ctrl+Shift+R for 90-degree counterclockwise rotation  
+- Added Ctrl+Alt+R for 180-degree rotation
+- Added Ctrl+M for horizontal mirroring
+- Added Ctrl+Shift+M for vertical mirroring
+- Implemented transform-based mirroring in BaseComponent class
+- Added menu actions for all rotation and mirroring functions
+
+### 2. Grid System Overhaul
+- Replaced grid lines with grid dots for cleaner appearance
+- Implemented configurable grid spacing based on component dimensions
+- Added automatic grid snapping for all components
+- Made grid dots thinner and more subtle (1px pen, 1px radius)
+- Changed grid color to light gray for better visibility
+- Removed grid coordinate display for cleaner interface
+
+### 3. Component Configuration System
+- Created JSON-based component configuration (component_config.json)
+- Implemented ConfigManager singleton for centralized settings
+- Added ConfigurableComponent base class for dimension-driven components
+- Made component dimensions, terminals, and SVG settings configurable
+- Added grid alignment settings per component type
+- Implemented automatic SVG scaling based on component dimensions
+
+### 4. Terminal Alignment System
+- Fixed fundamental terminal alignment with grid dots
+- Implemented perfect grid snapping for component placement
+- Added automatic terminal positioning based on component configuration
+- Ensured terminals align exactly with grid dots (30-mil grid spacing)
+- Fixed AddComponentCommand to snap components to grid
+
+### 5. Selection and Visual Improvements
+- Replaced Qt's default red selection rectangle with custom blue dotted outline
+- Implemented transparent blue selection indicator
+- Added debug information toggle (configurable, default disabled)
+- Improved component visual appearance and selection feedback
+
+## Technical Changes
+
+### Files Modified:
+- main.py: Added rotation/mirror shortcuts, config editor integration
+- components/base.py: Added mirror functionality, improved grid snapping
+- components/configurable_component.py: New base class for configurable components
+- components/resistor.py: Updated to use ConfigurableComponent
+- ui/schematic_scene.py: Grid dots rendering, coordinate display removal
+- ui/canvas_settings.py: Grid size calculation for component alignment
+- ui/command_system.py: Added grid snapping to AddComponentCommand
+- config/component_config.json: Component configuration definitions
+
+### Key Technical Improvements:
+- Grid spacing: 30 mils (half component width) for perfect terminal alignment
+- Terminal positions: ±30 mils from component center
+- SVG scaling: fit_within_bounds with aspect ratio maintenance
+- Transform system: Proper rotation and mirroring support
+- Configuration-driven: All component properties now configurable
+
+## Configuration Changes
+
+### Component Configuration (component_config.json):
+- Resistor: 60x60 mils, terminals at ±30 mils
+- Grid alignment: component_based
+- SVG scaling: fit_within_bounds
+- Debug info: disabled by default
+
+### Grid System:
+- Spacing: 30 mils (matches terminal offset)
+- Visual: Light gray dots, 1px thickness
+- Snapping: Always enabled for components
+- Alignment: Perfect terminal-to-grid alignment
+
+## User Experience Improvements
+
+### Keyboard Shortcuts:
+- Ctrl+R: Rotate 90° clockwise
+- Ctrl+Shift+R: Rotate 90° counterclockwise
+- Ctrl+Alt+R: Rotate 180°
+- Ctrl+M: Mirror horizontally
+- Ctrl+Shift+M: Mirror vertically
+
+### Visual Enhancements:
+- Clean grid dots instead of lines
+- Subtle selection indicators
+- Perfect component alignment
+- Professional schematic appearance
+- Configurable debug information
+
+## Bug Fixes
+
+### Terminal Alignment:
+- Fixed terminals appearing between grid dots
+- Implemented proper grid spacing calculation
+- Ensured perfect alignment with grid dots
+- Fixed component placement snapping
+
+### Selection System:
+- Removed red selection rectangles
+- Added custom blue dotted selection outline
+- Improved visual feedback for selected components
+- Fixed selection appearance issues
+
+## Performance Improvements
+
+### Rendering:
+- Optimized grid dot rendering
+- Removed unnecessary coordinate text rendering
+- Improved SVG scaling performance
+- Better visual hierarchy
+
+### Configuration:
+- Centralized configuration management
+- Efficient component dimension calculation
+- Optimized grid snapping algorithms
+
+## Future-Ready Architecture
+
+### Extensibility:
+- Easy addition of new component types
+- Configurable component properties
+- Flexible grid system
+- Modular configuration system
+
+### Maintainability:
+- Clean separation of concerns
+- Centralized configuration
+- Consistent component architecture
+- Well-documented code structure
+
+---
+
+This commit represents a major enhancement to the YAEW schematic editor, providing professional-grade component placement, rotation, mirroring, and grid alignment capabilities with a clean, configurable architecture.

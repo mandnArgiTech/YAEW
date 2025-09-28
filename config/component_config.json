@@ -1,0 +1,89 @@
+{
+  "components": {
+    "resistor": {
+      "dimensions": {
+        "width_mils": 60,
+        "height_mils": 60,
+        "description": "Resistor component dimensions in mils"
+      },
+      "terminals": {
+        "count": 2,
+        "positions": [
+          {"x_offset_mils": -30, "y_offset_mils": 0, "name": "Terminal 1"},
+          {"x_offset_mils": 30, "y_offset_mils": 0, "name": "Terminal 2"}
+        ],
+        "description": "Terminal positions relative to component center in mils"
+      },
+      "svg": {
+        "file": "resources/icons/Resistor.svg",
+        "scaling": "fit_within_bounds",
+        "maintain_aspect_ratio": true,
+        "description": "SVG rendering configuration"
+      },
+      "grid": {
+        "alignment": "component_based",
+        "snap_to_grid": true,
+        "description": "Grid alignment settings"
+      }
+    },
+    "capacitor": {
+      "dimensions": {
+        "width_mils": 40,
+        "height_mils": 40,
+        "description": "Capacitor component dimensions in mils"
+      },
+      "terminals": {
+        "count": 2,
+        "positions": [
+          {"x_offset_mils": -20, "y_offset_mils": 0, "name": "Terminal 1"},
+          {"x_offset_mils": 20, "y_offset_mils": 0, "name": "Terminal 2"}
+        ],
+        "description": "Terminal positions relative to component center in mils"
+      },
+      "svg": {
+        "file": "resources/icons/Capacitor.svg",
+        "scaling": "fit_within_bounds",
+        "maintain_aspect_ratio": true,
+        "description": "SVG rendering configuration"
+      },
+      "grid": {
+        "alignment": "component_based",
+        "snap_to_grid": true,
+        "description": "Grid alignment settings"
+      }
+    },
+    "voltage_source": {
+      "dimensions": {
+        "width_mils": 60,
+        "height_mils": 40,
+        "description": "Voltage source component dimensions in mils"
+      },
+      "terminals": {
+        "count": 2,
+        "positions": [
+          {"x_offset_mils": -30, "y_offset_mils": 0, "name": "Positive"},
+          {"x_offset_mils": 30, "y_offset_mils": 0, "name": "Negative"}
+        ],
+        "description": "Terminal positions relative to component center in mils"
+      },
+      "svg": {
+        "file": "resources/icons/DC Voltage.svg",
+        "scaling": "fit_within_bounds",
+        "maintain_aspect_ratio": true,
+        "description": "SVG rendering configuration"
+      },
+      "grid": {
+        "alignment": "component_based",
+        "snap_to_grid": true,
+        "description": "Grid alignment settings"
+      }
+    }
+  },
+  "global_settings": {
+    "default_unit": "mil",
+    "grid_snap_enabled": true,
+    "auto_align_grid_to_components": true,
+    "show_debug_info": false,
+    "description": "Global configuration settings"
+  }
+}

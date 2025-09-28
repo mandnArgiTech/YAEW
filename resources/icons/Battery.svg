@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<!-- Generator: Adobe Illustrator 18.0.0, SVG Export Plug-In . SVG Version: 6.00 Build 0)  -->
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- License: CC0. Made by SVG Repo: https://www.svgrepo.com/svg/34845/battery -->
+<svg version="1.1" id="Capa_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+	 viewBox="0 0 460 460" style="enable-background:new 0 0 460 460;" xml:space="preserve">
+<g id="XMLID_1013_">
+	<polygon id="XMLID_1271_" points="65,215 10,215 10,245 65,245 65,460 95,460 95,0 65,0 	"/>
+	<rect id="XMLID_1272_" x="245" width="30" height="460"/>
+	<path id="XMLID_1275_" d="M450,215h-55V100c0-8.284-6.716-15-15-15h-60c-8.284,0-15,6.716-15,15v260c0,8.284,6.716,15,15,15h60
+		c8.284,0,15-6.716,15-15V245h55V215z M365,345h-30V115h30V345z"/>
+	<path id="XMLID_1279_" d="M200,85h-60c-8.284,0-15,6.716-15,15v260c0,8.284,6.716,15,15,15h60c8.284,0,15-6.716,15-15V100
+		C215,91.716,208.284,85,200,85z M185,345h-30V115h30V345z"/>
+</g>
+</svg>
