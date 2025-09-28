@@ -151,6 +151,9 @@ class Resistor(ConfigurableComponent):
             else:
                 self.setPos(new_pos)
             
+            # Update connected wires during movement
+            self._update_connected_wires()
+            
             # Don't update labels during movement - only after movement is complete
             event.accept()
         else:

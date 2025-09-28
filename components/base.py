@@ -171,8 +171,19 @@ class BaseComponent(QGraphicsItem):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             # Update terminal positions when component moves
             self.update()
+            # Update all connected wires
+            self._update_connected_wires()
         
         return super().itemChange(change, value)
+    
+    def _update_connected_wires(self):
+        """Update all wires connected to this component's terminals"""
+        # print(f"Updating connected wires for {self.name}")
+        for i, terminal in enumerate(self._terminals):
+            # print(f"  Terminal {i} has {len(terminal['connections'])} connections")
+            for wire in terminal['connections']:
+                if hasattr(wire, 'update_position'):
+                    wire.update_position()
     
     def mousePressEvent(self, event):
         """Handle mouse press events"""
@@ -197,6 +208,10 @@ class BaseComponent(QGraphicsItem):
                 new_pos = scene.settings.snap_to_grid(new_pos)
             
             self.setPos(new_pos)
+            
+            # Update connected wires during movement
+            self._update_connected_wires()
+            
             event.accept()
         else:
             super().mouseMoveEvent(event)

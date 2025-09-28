@@ -170,6 +170,9 @@ class SchematicScene(QGraphicsScene):
         if not enabled:
             # Cancel any active wire drawing
             self.cancel_wire_drawing()
+            # Reset cursor to default
+            if self.views():
+                self.views()[0].setCursor(Qt.CursorShape.ArrowCursor)
     
     def add_resistor(self, x: float, y: float, name: str = "R", value: str = "1k") -> Resistor:
         """Add a resistor to the scene"""
@@ -211,8 +214,14 @@ class SchematicScene(QGraphicsScene):
             if component and terminal_index >= 0:
                 # Complete the wire connection
                 self._current_wire.is_temporary = False
-                self._current_wire.connect_terminals(self._start_component, component)
+                self._current_wire.connect_terminals(
+                    self._start_component, 
+                    component, 
+                    self._start_terminal_index, 
+                    terminal_index
+                )
                 self.wire_added.emit(self._current_wire)
+                print(f"Wire connected: {self._start_component.name} terminal {self._start_terminal_index} to {component.name} terminal {terminal_index}")
             else:
                 # Cancel wire drawing
                 self.removeItem(self._current_wire)
@@ -234,38 +243,68 @@ class SchematicScene(QGraphicsScene):
     
     def mousePressEvent(self, event):
         """Handle mouse press events"""
-        if event.button() == Qt.MouseButton.LeftButton and self._wire_mode:
-            # Get item under mouse
-            # Get the view's transform for proper item detection
-            if self.views():
-                view_transform = self.views()[0].transform()
-                item = self.itemAt(event.scenePos(), view_transform)
-            else:
-                item = None
-            print(f"Mouse press at {event.scenePos()}, item: {item}")
-            
-            if self._wire_drawing_mode:
-                # Finish wire drawing
-                if item and hasattr(item, 'find_nearest_terminal'):
-                    terminal_index = item.find_nearest_terminal(
-                        event.scenePos().x(), event.scenePos().y()
-                    )
-                    print(f"Found terminal index: {terminal_index}")
-                    if terminal_index >= 0:
-                        self.finish_wire_drawing(item, terminal_index)
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self._wire_mode:
+                # Wire mode handling
+                # Get item under mouse
+                # Get the view's transform for proper item detection
+                if self.views():
+                    view_transform = self.views()[0].transform()
+                    item = self.itemAt(event.scenePos(), view_transform)
+                else:
+                    item = None
+                print(f"Mouse press at {event.scenePos()}, item: {item}")
+                
+                if self._wire_drawing_mode:
+                    # Finish wire drawing
+                    if item and hasattr(item, 'find_nearest_terminal'):
+                        terminal_index = item.find_nearest_terminal(
+                            event.scenePos().x(), event.scenePos().y()
+                        )
+                        print(f"Found terminal index: {terminal_index}")
+                        if terminal_index >= 0:
+                            self.finish_wire_drawing(item, terminal_index)
+                        else:
+                            self.cancel_wire_drawing()
                     else:
                         self.cancel_wire_drawing()
                 else:
-                    self.cancel_wire_drawing()
+                    # Start wire drawing if clicking on a component terminal
+                    if item and hasattr(item, 'find_nearest_terminal'):
+                        terminal_index = item.find_nearest_terminal(
+                            event.scenePos().x(), event.scenePos().y()
+                        )
+                        print(f"Found terminal index: {terminal_index}")
+                        if terminal_index >= 0:
+                            self.start_wire_drawing(item, terminal_index)
+                            # Store the start position for drag detection
+                            self._wire_start_pos = event.scenePos()
+                
+                # Prevent component selection in wire mode
+                event.accept()
+                return
             else:
-                # Start wire drawing if clicking on a component terminal
-                if item and hasattr(item, 'find_nearest_terminal'):
-                    terminal_index = item.find_nearest_terminal(
-                        event.scenePos().x(), event.scenePos().y()
-                    )
-                    print(f"Found terminal index: {terminal_index}")
-                    if terminal_index >= 0:
-                        self.start_wire_drawing(item, terminal_index)
+                # Normal mode - handle multi-selection dragging
+                # Check if we're clicking on a selected item
+                if self.views():
+                    item = self.itemAt(event.scenePos(), self.views()[0].transform())
+                    if item and item.isSelected():
+                        # Check if multiple items are selected
+                        selected_items = [item for item in self.selectedItems() if hasattr(item, 'setPos')]
+                        if len(selected_items) > 1:
+                            # Start multi-drag mode only for multiple selections
+                            self._multi_drag_mode = True
+                            self._multi_drag_start_pos = event.scenePos()
+                            # Store initial positions of all selected items
+                            self._selected_items_start_positions = {}
+                            for item in selected_items:
+                                self._selected_items_start_positions[item] = item.pos()
+                            event.accept()
+                            return
+                        else:
+                            # Single item selected - let the component handle its own movement
+                            # Don't interfere with single component dragging
+                            pass
         
         super().mousePressEvent(event)
     
@@ -273,11 +312,113 @@ class SchematicScene(QGraphicsScene):
         """Handle mouse move events"""
         if self._wire_drawing_mode:
             self.update_wire_drawing(event.scenePos())
+        elif self._wire_mode and event.buttons() == Qt.MouseButton.LeftButton:
+            # Check if we're dragging from a terminal to create a wire
+            if hasattr(self, '_wire_start_pos'):
+                # Check if we've moved enough to consider it a drag
+                drag_distance = (event.scenePos() - self._wire_start_pos).manhattanLength()
+                if drag_distance > 10:  # Minimum drag distance
+                    # Check if we're hovering over another terminal
+                    if self.views():
+                        view_transform = self.views()[0].transform()
+                        item = self.itemAt(event.scenePos(), view_transform)
+                        if item and hasattr(item, 'find_nearest_terminal'):
+                            terminal_index = item.find_nearest_terminal(
+                                event.scenePos().x(), event.scenePos().y()
+                            )
+                            if terminal_index >= 0:
+                                # We're dragging to another terminal - start wire drawing
+                                if not self._wire_drawing_mode:
+                                    self.start_wire_drawing(self._start_component, self._start_terminal_index)
+                                # Update the wire end point
+                                self.update_wire_drawing(event.scenePos())
+        
+        # Handle multi-selection dragging
+        if self._multi_drag_mode and event.buttons() == Qt.MouseButton.LeftButton:
+            # Calculate the movement delta
+            delta = event.scenePos() - self._multi_drag_start_pos
+            
+            # Move all selected items
+            for item, start_pos in self._selected_items_start_positions.items():
+                new_pos = start_pos + delta
+                # Apply grid snapping to components
+                if hasattr(item, 'settings') and item.settings:
+                    snapped_pos = item.settings.snap_to_grid(new_pos)
+                    item.setPos(snapped_pos)
+                else:
+                    item.setPos(new_pos)
+            
+            event.accept()
+            return
         
         # Update coordinate display for debugging
         self._update_coordinate_display(event.scenePos())
         
         super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release events"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self._wire_mode:
+                # Handle wire mode mouse release
+                if self._wire_drawing_mode:
+                    # Check if we're releasing over a terminal
+                    if self.views():
+                        view_transform = self.views()[0].transform()
+                        item = self.itemAt(event.scenePos(), view_transform)
+                        if item and hasattr(item, 'find_nearest_terminal'):
+                            terminal_index = item.find_nearest_terminal(
+                                event.scenePos().x(), event.scenePos().y()
+                            )
+                            if terminal_index >= 0:
+                                # Complete the wire connection
+                                self.finish_wire_drawing(item, terminal_index)
+                            else:
+                                # Not over a terminal - cancel wire drawing
+                                self.cancel_wire_drawing()
+                        else:
+                            # Not over a component - cancel wire drawing
+                            self.cancel_wire_drawing()
+                    else:
+                        self.cancel_wire_drawing()
+                else:
+                    # Check if we were dragging from a terminal
+                    if hasattr(self, '_wire_start_pos'):
+                        # Check if we're releasing over another terminal
+                        if self.views():
+                            view_transform = self.views()[0].transform()
+                            item = self.itemAt(event.scenePos(), view_transform)
+                            if item and hasattr(item, 'find_nearest_terminal'):
+                                terminal_index = item.find_nearest_terminal(
+                                    event.scenePos().x(), event.scenePos().y()
+                                )
+                                if terminal_index >= 0:
+                                    # Start and immediately finish wire drawing
+                                    self.start_wire_drawing(self._start_component, self._start_terminal_index)
+                                    self.finish_wire_drawing(item, terminal_index)
+                        # Clean up drag state
+                        if hasattr(self, '_wire_start_pos'):
+                            delattr(self, '_wire_start_pos')
+                
+                event.accept()
+                return
+            elif self._multi_drag_mode:
+                # Apply final grid snapping to all selected items
+                for item in self._selected_items_start_positions.keys():
+                    if hasattr(item, 'settings') and item.settings:
+                        snapped_pos = item.settings.snap_to_grid(item.pos())
+                        item.setPos(snapped_pos)
+                    # Update labels if it's a component with labels
+                    if hasattr(item, '_update_label_positions'):
+                        item._update_label_positions()
+                
+                # Clear multi-drag state
+                self._multi_drag_mode = False
+                self._selected_items_start_positions = {}
+                event.accept()
+                return
+        
+        super().mouseReleaseEvent(event)
     
     def _update_coordinate_display(self, scene_pos):
         """Update coordinate display for debugging"""
@@ -393,68 +534,5 @@ class SchematicScene(QGraphicsScene):
                 wires.append(item)
         return wires
     
-    def mousePressEvent(self, event):
-        """Handle mouse press events for multi-selection dragging"""
-        if event.button() == Qt.MouseButton.LeftButton:
-            # Check if we're clicking on a selected item
-            item = self.itemAt(event.scenePos(), self.views()[0].transform())
-            if item and item.isSelected():
-                # Check if multiple items are selected
-                selected_items = [item for item in self.selectedItems() if hasattr(item, 'setPos')]
-                if len(selected_items) > 1:
-                    # Start multi-drag mode only for multiple selections
-                    self._multi_drag_mode = True
-                    self._multi_drag_start_pos = event.scenePos()
-                    # Store initial positions of all selected items
-                    self._selected_items_start_positions = {}
-                    for item in selected_items:
-                        self._selected_items_start_positions[item] = item.pos()
-                    event.accept()
-                    return
-                else:
-                    # Single item selected - let the component handle its own movement
-                    # Don't interfere with single component dragging
-                    pass
-        
-        super().mousePressEvent(event)
     
-    def mouseMoveEvent(self, event):
-        """Handle mouse move events for multi-selection dragging"""
-        if self._multi_drag_mode and event.buttons() == Qt.MouseButton.LeftButton:
-            # Calculate the movement delta
-            delta = event.scenePos() - self._multi_drag_start_pos
-            
-            # Move all selected items
-            for item, start_pos in self._selected_items_start_positions.items():
-                new_pos = start_pos + delta
-                # Apply grid snapping to components
-                if hasattr(item, 'settings') and item.settings:
-                    snapped_pos = item.settings.snap_to_grid(new_pos)
-                    item.setPos(snapped_pos)
-                else:
-                    item.setPos(new_pos)
-            
-            event.accept()
-            return
-        
-        super().mouseMoveEvent(event)
     
-    def mouseReleaseEvent(self, event):
-        """Handle mouse release events for multi-selection dragging"""
-        if self._multi_drag_mode and event.button() == Qt.MouseButton.LeftButton:
-            # Apply final grid snapping to all selected items
-            for item in self._selected_items_start_positions.keys():
-                if hasattr(item, 'settings') and item.settings:
-                    snapped_pos = item.settings.snap_to_grid(item.pos())
-                    item.setPos(snapped_pos)
-                # Update labels if it's a component with labels
-                if hasattr(item, '_update_label_positions'):
-                    item._update_label_positions()
-            
-            # Clear multi-drag state
-            self._multi_drag_mode = False
-            self._selected_items_start_positions = {}
-            event.accept()
-            return
-        
-        super().mouseReleaseEvent(event)

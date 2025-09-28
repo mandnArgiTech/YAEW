@@ -9,8 +9,8 @@
       "terminals": {
         "count": 2,
         "positions": [
-          {"x_offset_mils": -30, "y_offset_mils": 0, "name": "Terminal 1"},
-          {"x_offset_mils": 30, "y_offset_mils": 0, "name": "Terminal 2"}
+          {"x_offset_mils": -35, "y_offset_mils": 0, "name": "Terminal 1"},
+          {"x_offset_mils": 35, "y_offset_mils": 0, "name": "Terminal 2"}
         ],
         "description": "Terminal positions relative to component center in mils"
       },

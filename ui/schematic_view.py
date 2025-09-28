@@ -120,6 +120,21 @@ class SchematicView(QGraphicsView):
             # Update coordinate display with grid snapping
             scene_pos = self.mapToScene(event.pos())
             
+            # Check if we're in wire mode and hovering over a terminal
+            if hasattr(self.scene(), '_wire_mode') and self.scene()._wire_mode:
+                item = self.itemAt(event.pos())
+                if item and hasattr(item, 'find_nearest_terminal'):
+                    terminal_index = item.find_nearest_terminal(scene_pos.x(), scene_pos.y())
+                    if terminal_index >= 0:
+                        # Hovering over a terminal - show crosshair cursor
+                        self.setCursor(Qt.CursorShape.CrossCursor)
+                    else:
+                        # Not hovering over a terminal - show arrow cursor
+                        self.setCursor(Qt.CursorShape.ArrowCursor)
+                else:
+                    # Not hovering over a component - show arrow cursor
+                    self.setCursor(Qt.CursorShape.ArrowCursor)
+            
             # Snap to grid if enabled
             if hasattr(self.scene(), 'settings') and hasattr(self.scene(), '_snap_to_grid'):
                 if self.scene()._snap_to_grid:
