@@ -4,17 +4,18 @@ Implements a resistor with standard zig-zag symbol using configurable dimensions
 """
 
 from PyQt6.QtWidgets import QStyleOptionGraphicsItem, QWidget
-from PyQt6.QtCore import QRectF, Qt
+from PyQt6.QtCore import QRectF, Qt, QPointF
 from PyQt6.QtGui import QPainter, QPainterPath, QPen, QFont, QFontMetrics, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
 from .configurable_component import ConfigurableComponent
+from .movable_label import MovableLabel
 import os
 
 
 class Resistor(ConfigurableComponent):
     """Resistor component with zig-zag symbol using configurable dimensions"""
     
-    def __init__(self, name: str = "R", value: str = "1k"):
+    def __init__(self, name: str = "R1", value: str = "1k"):
         super().__init__("resistor", name, value)
         
         # Resistor-specific properties
@@ -27,10 +28,154 @@ class Resistor(ConfigurableComponent):
             'Power Rating (W)': '0.25',
             'Temp. Coefficient (ppm/K)': '100'
         }
+        
+        # Create movable labels
+        self._name_label = None
+        self._value_label = None
+        
+        # Initialize label offsets (will be set when labels are created)
+        # Position labels: name above component, value below component
+        # Updated based on user positioning: Name offset: (-3.8, -38.1), Value offset: (-6.2, 21.9)
+        self._name_offset = QPointF(-3.8, -38.1)  # Above component - user positioned
+        self._value_offset = QPointF(-6.2, 21.9)  # Below component - user positioned
+        
+        # Flag to prevent offset recalculation during component movement
+        self._updating_label_positions = False
+        
+        # Store unsnapped position for label positioning
+        self._unsnapped_position = QPointF(0, 0)
     
     def update_dimensions(self):
         """Update resistor dimensions based on current grid size and configuration"""
         super().update_dimensions()
+        # Update label positions when dimensions change
+        self._update_label_positions()
+    
+    def _create_labels(self):
+        """Create movable labels for the component"""
+        if not self.scene():
+            return  # Can't create labels without a scene
+        
+        # Create name label (e.g., R1)
+        name_text = self.name if self.name else "R1"
+        self._name_label = MovableLabel(name_text, self, "name")
+        self._name_label.setPos(self.pos() + self._name_offset)
+        self.scene().addItem(self._name_label)
+        
+        # Create value label (e.g., 1K)
+        resistance_value = self.properties.get('Resistance', self.value or '1k')
+        self._value_label = MovableLabel(resistance_value, self, "value")
+        self._value_label.setPos(self.pos() + self._value_offset)
+        self.scene().addItem(self._value_label)
+    
+    def _update_label_positions(self):
+        """Update label positions when component moves"""
+        # Set flag BEFORE calling setPos to prevent offset recalculation
+        self._updating_label_positions = True
+        
+        # Use component's actual position for label positioning
+        # The offsets are already calculated relative to the component's position
+        base_pos = self.pos()
+        
+        if self._name_label:
+            new_name_pos = base_pos + self._name_offset
+            self._name_label.setPos(new_name_pos)
+            self._name_label.update()  # Force visual update
+        if self._value_label:
+            new_value_pos = base_pos + self._value_offset
+            self._value_label.setPos(new_value_pos)
+            self._value_label.update()  # Force visual update
+            
+        # Re-enable offset tracking after all positions are set
+        self._updating_label_positions = False
+    
+    def on_label_moved(self, label, new_position):
+        """Handle when a label is moved"""
+        # Only update offsets if we're not in the middle of updating label positions
+        if self._updating_label_positions:
+            return
+            
+        # Update the label's stored offset relative to component position
+        if label == self._name_label:
+            self._name_offset = new_position - self.pos()
+            # Debug log for name label position
+            print(f"DEBUG: Name label moved to offset: {self._name_offset.x():.1f}, {self._name_offset.y():.1f}")
+        elif label == self._value_label:
+            self._value_offset = new_position - self.pos()
+            # Debug log for value label position
+            print(f"DEBUG: Value label moved to offset: {self._value_offset.x():.1f}, {self._value_offset.y():.1f}")
+    
+    def _cleanup_labels(self):
+        """Clean up labels when component is removed from scene"""
+        if self._name_label and self._name_label.scene():
+            self._name_label.scene().removeItem(self._name_label)
+            self._name_label = None
+        if self._value_label and self._value_label.scene():
+            self._value_label.scene().removeItem(self._value_label)
+            self._value_label = None
+    
+    def get_final_label_positions(self):
+        """Get the final label positions for saving as defaults"""
+        return {
+            'name_offset': {
+                'x': self._name_offset.x(),
+                'y': self._name_offset.y()
+            },
+            'value_offset': {
+                'x': self._value_offset.x(),
+                'y': self._value_offset.y()
+            }
+        }
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press events and store unsnapped position"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Store the unsnapped position for label positioning
+            self._unsnapped_position = self.pos()
+        super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        """Handle mouse move events with unsnapped position tracking"""
+        if event.buttons() == Qt.MouseButton.LeftButton:
+            # Calculate new position without snapping
+            new_pos = event.scenePos() - self._drag_start_pos
+            
+            # Store unsnapped position for label positioning
+            self._unsnapped_position = new_pos
+            
+            # Apply grid snapping only to component
+            scene = self.scene()
+            if scene and hasattr(scene, 'settings') and scene.settings:
+                snapped_pos = scene.settings.snap_to_grid(new_pos)
+                self.setPos(snapped_pos)
+            else:
+                self.setPos(new_pos)
+            
+            # Don't update labels during movement - only after movement is complete
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release events with final snapping"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Apply final grid snapping to component
+            scene = self.scene()
+            if scene and hasattr(scene, 'settings') and scene.settings:
+                snapped_pos = scene.settings.snap_to_grid(self.pos())
+                self.setPos(snapped_pos)
+            
+            # Update label positions after component movement is complete
+            self._update_label_positions()
+        super().mouseReleaseEvent(event)
+    
+    def itemChange(self, change, value):
+        """Handle item changes"""
+        if change == self.GraphicsItemChange.ItemPositionChange:
+            # Update label positions when component moves
+            self._update_label_positions()
+        
+        return super().itemChange(change, value)
     
     def _paint_component(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None):
         """Paint the resistor symbol"""
@@ -118,53 +263,17 @@ class Resistor(ConfigurableComponent):
     
     def _draw_labels(self, painter: QPainter):
         """Draw component name and value labels with Level of Detail"""
-        # Check if we should show text based on zoom level
-        scene = self.scene()
-        if scene and scene.views():
-            view = scene.views()[0]
-            if hasattr(view, 'should_show_text') and not view.should_show_text():
-                return  # Don't draw text at low zoom levels
-        
-        # Set up font with larger size
-        font = QFont("Arial", 10, QFont.Weight.Bold)
-        painter.setFont(font)
-        painter.setPen(Qt.GlobalColor.black)
-        
-        # Draw component name
-        name_text = self.name if self.name else "R"
-        name_rect = QRectF(-self._width // 2, -self._height - 20, 
-                          self._width, 15)
-        painter.drawText(name_rect, Qt.AlignmentFlag.AlignCenter, name_text)
-        
-        # Draw resistance value from properties
-        resistance_value = self.properties.get('Resistance', self.value or '1k')
-        value_rect = QRectF(-self._width // 2, self._height + 8, 
-                           self._width, 15)
-        painter.drawText(value_rect, Qt.AlignmentFlag.AlignCenter, resistance_value)
-        
-        # Draw tolerance if available and zoom level is high enough
-        tolerance = self.properties.get('Tolerance', '')
-        if tolerance and scene and scene.views():
-            view = scene.views()[0]
-            if hasattr(view, 'should_show_details') and view.should_show_details():
-                # Use smaller font for tolerance
-                tolerance_font = QFont("Arial", 8)
-                painter.setFont(tolerance_font)
-                tolerance_rect = QRectF(-self._width // 2, self._height + 25, 
-                                       self._width, 12)
-                painter.drawText(tolerance_rect, Qt.AlignmentFlag.AlignCenter, tolerance)
-                # Reset font for other text
-                painter.setFont(font)
+        # Labels are now handled by separate MovableLabel items
+        # This method is kept for compatibility but does nothing
+        pass
     
     def boundingRect(self) -> QRectF:
         """Return the bounding rectangle of the resistor"""
-        margin = 15  # Extra margin for larger labels
-        # Extra space for tolerance label
-        extra_height = 20 if self.properties.get('Tolerance', '') else 0
+        margin = 10  # Smaller margin for closer labels
         return QRectF(-self._width // 2 - margin, 
-                     -self._height - margin - 5,  # Extra space for name
+                     -self._height // 2 - margin - 15,  # Space for name label
                      self._width + 2 * margin, 
-                     self._height * 2 + 2 * margin + extra_height + 10)
+                     self._height + 2 * margin + 30)  # Space for value label
     
     def shape(self) -> QPainterPath:
         """Return the shape of the resistor for collision detection"""
@@ -186,6 +295,36 @@ class Resistor(ConfigurableComponent):
         # Terminals are now handled automatically in get_terminal_position()
         # No need to update terminal positions here
         pass
+    
+    def rotate_label_offsets(self, angle_degrees):
+        """Rotate the label offsets when component is rotated"""
+        from PyQt6.QtGui import QTransform
+        
+        # Create rotation transform
+        transform = QTransform()
+        transform.rotate(angle_degrees)
+        
+        # Rotate the label offsets
+        self._name_offset = transform.map(self._name_offset)
+        self._value_offset = transform.map(self._value_offset)
+        
+        # Update label positions with new rotated offsets
+        self._update_label_positions()
+    
+    def rotate_90_clockwise(self):
+        """Rotate component 90 degrees clockwise and update labels"""
+        super().rotate_90_clockwise()
+        self.rotate_label_offsets(90)
+    
+    def rotate_90_counterclockwise(self):
+        """Rotate component 90 degrees counterclockwise and update labels"""
+        super().rotate_90_counterclockwise()
+        self.rotate_label_offsets(-90)
+    
+    def rotate_180(self):
+        """Rotate component 180 degrees and update labels"""
+        super().rotate_180()
+        self.rotate_label_offsets(180)
     
     def _get_properties_config(self):
         """Get properties configuration for the resistor dialog"""

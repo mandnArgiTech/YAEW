@@ -20,6 +20,7 @@ class SchematicView(QGraphicsView):
     
     # Signals
     coordinate_updated = pyqtSignal(str)  # Emitted when mouse moves to update coordinates
+    zoom_changed = pyqtSignal(float)  # Emitted when zoom level changes
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -174,22 +175,53 @@ class SchematicView(QGraphicsView):
         if self._zoom_factor < self._max_zoom:
             self._zoom_factor += self._zoom_step
             self.scale(1 + self._zoom_step, 1 + self._zoom_step)
+            self.zoom_changed.emit(self._zoom_factor)
     
     def zoom_out(self):
         """Zoom out by one step"""
         if self._zoom_factor > self._min_zoom:
             self._zoom_factor -= self._zoom_step
             self.scale(1 - self._zoom_step, 1 - self._zoom_step)
+            self.zoom_changed.emit(self._zoom_factor)
     
     def zoom_to_fit(self):
         """Zoom to fit all items in the view"""
         self.fitInView(self.scene().itemsBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
-        self._zoom_factor = 1.0
+        self._zoom_factor = self.transform().m11()  # Get actual zoom factor
+        self.zoom_changed.emit(self._zoom_factor)
     
     def zoom_to_actual_size(self):
         """Reset zoom to 100%"""
         self.resetTransform()
         self._zoom_factor = 1.0
+        self.zoom_changed.emit(self._zoom_factor)
+    
+    def set_optimal_zoom_for_components(self, component_count=25):
+        """Set zoom level to show approximately the specified number of components optimally"""
+        # Calculate component size (60x60 pixels for resistor)
+        component_size = 60  # pixels
+        component_spacing = 30  # grid spacing in pixels
+        
+        # Calculate how many components fit in viewport
+        viewport_size = min(self.viewport().width(), self.viewport().height())
+        
+        # Calculate desired zoom factor to show component_count components
+        # Each component takes component_size + spacing
+        total_component_width = component_count * (component_size + component_spacing)
+        
+        # Calculate zoom factor needed
+        desired_zoom = viewport_size / total_component_width
+        
+        # Clamp to valid zoom range
+        desired_zoom = max(self._min_zoom, min(self._max_zoom, desired_zoom))
+        
+        # Apply zoom
+        self.resetTransform()
+        self.scale(desired_zoom, desired_zoom)
+        self._zoom_factor = desired_zoom
+        self.zoom_changed.emit(self._zoom_factor)
+        
+        return desired_zoom
     
     def zoom_to_selection(self):
         """Zoom to fit selected items"""

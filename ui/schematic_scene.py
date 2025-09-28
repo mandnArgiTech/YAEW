@@ -28,6 +28,10 @@ class SchematicScene(QGraphicsScene):
         self._wire_drawing_mode = False
         self._current_wire = None
         self._start_component = None
+        
+        # Multi-selection dragging state
+        self._multi_drag_mode = False
+        self._selected_items_start_positions = {}
         self._start_terminal_index = -1
         
         # Canvas settings with unit system
@@ -38,7 +42,7 @@ class SchematicScene(QGraphicsScene):
         
         # Grid settings (legacy - now managed by settings)
         self._grid_size = 20
-        self._show_grid = True
+        self._show_grid = True  # Grid dots enabled
         self._snap_to_grid = True  # Always enable grid snapping
         
         # Set up scene properties
@@ -46,7 +50,7 @@ class SchematicScene(QGraphicsScene):
         self.setBackgroundBrush(Qt.GlobalColor.white)
     
     def drawBackground(self, painter, rect):
-        """Draw the background grid with dots and Level of Detail"""
+        """Draw the background with grid dots only"""
         super().drawBackground(painter, rect)
         
         if self._show_grid:
@@ -60,33 +64,46 @@ class SchematicScene(QGraphicsScene):
             # Get grid size in pixels from settings
             grid_size_px = self.settings.get_grid_size_pixels()
             
-            # Set up grid pen for dots - make them thinner and more subtle
-            if show_fine_grid:
-                grid_pen = QPen(Qt.GlobalColor.lightGray, 1)  # Thinner dots
-            else:
-                # Coarse grid for low zoom
-                grid_pen = QPen(Qt.GlobalColor.lightGray, 2)  # Slightly thicker for low zoom
-                grid_size_px = grid_size_px * 4  # Larger grid spacing
-            
-            painter.setPen(grid_pen)
-            
             # Get the visible area
             left = int(rect.left()) - (int(rect.left()) % int(grid_size_px))
             top = int(rect.top()) - (int(rect.top()) % int(grid_size_px))
             right = int(rect.right())
             bottom = int(rect.bottom())
             
-            # Draw grid dots instead of lines - use circles for better visibility
-            x = left
-            while x <= right:
-                y = top
-                while y <= bottom:
-                    # Draw circular dots - smaller and more subtle
-                    dot_radius = 1.0 if show_fine_grid else 1.5
-                    painter.drawEllipse(int(x - dot_radius), int(y - dot_radius), 
-                                      int(dot_radius * 2), int(dot_radius * 2))
-                    y += int(grid_size_px)
-                x += int(grid_size_px)
+            # Draw only grid dots - no lines
+            if show_fine_grid:
+                # Fine grid dots
+                dot_pen = QPen(Qt.GlobalColor.lightGray, 1)
+                painter.setPen(dot_pen)
+                
+                x = left
+                while x <= right:
+                    y = top
+                    while y <= bottom:
+                        # Draw circular dots
+                        dot_radius = 1.0
+                        painter.drawEllipse(int(x - dot_radius), int(y - dot_radius), 
+                                          int(dot_radius * 2), int(dot_radius * 2))
+                        y += grid_size_px
+                    x += grid_size_px
+            else:
+                # Coarse grid dots for low zoom
+                dot_pen = QPen(Qt.GlobalColor.lightGray, 1.5)
+                painter.setPen(dot_pen)
+                
+                # Use larger spacing for coarse grid
+                coarse_spacing = grid_size_px * 4
+                
+                x = left
+                while x <= right:
+                    y = top
+                    while y <= bottom:
+                        # Draw larger dots for coarse grid
+                        dot_radius = 1.5
+                        painter.drawEllipse(int(x - dot_radius), int(y - dot_radius), 
+                                          int(dot_radius * 2), int(dot_radius * 2))
+                        y += coarse_spacing
+                    x += coarse_spacing
     
     def snap_to_grid(self, point: QPointF) -> QPointF:
         """Snap a point to the grid using unit system"""
@@ -375,3 +392,69 @@ class SchematicScene(QGraphicsScene):
             if isinstance(item, Wire):
                 wires.append(item)
         return wires
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press events for multi-selection dragging"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Check if we're clicking on a selected item
+            item = self.itemAt(event.scenePos(), self.views()[0].transform())
+            if item and item.isSelected():
+                # Check if multiple items are selected
+                selected_items = [item for item in self.selectedItems() if hasattr(item, 'setPos')]
+                if len(selected_items) > 1:
+                    # Start multi-drag mode only for multiple selections
+                    self._multi_drag_mode = True
+                    self._multi_drag_start_pos = event.scenePos()
+                    # Store initial positions of all selected items
+                    self._selected_items_start_positions = {}
+                    for item in selected_items:
+                        self._selected_items_start_positions[item] = item.pos()
+                    event.accept()
+                    return
+                else:
+                    # Single item selected - let the component handle its own movement
+                    # Don't interfere with single component dragging
+                    pass
+        
+        super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        """Handle mouse move events for multi-selection dragging"""
+        if self._multi_drag_mode and event.buttons() == Qt.MouseButton.LeftButton:
+            # Calculate the movement delta
+            delta = event.scenePos() - self._multi_drag_start_pos
+            
+            # Move all selected items
+            for item, start_pos in self._selected_items_start_positions.items():
+                new_pos = start_pos + delta
+                # Apply grid snapping to components
+                if hasattr(item, 'settings') and item.settings:
+                    snapped_pos = item.settings.snap_to_grid(new_pos)
+                    item.setPos(snapped_pos)
+                else:
+                    item.setPos(new_pos)
+            
+            event.accept()
+            return
+        
+        super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        """Handle mouse release events for multi-selection dragging"""
+        if self._multi_drag_mode and event.button() == Qt.MouseButton.LeftButton:
+            # Apply final grid snapping to all selected items
+            for item in self._selected_items_start_positions.keys():
+                if hasattr(item, 'settings') and item.settings:
+                    snapped_pos = item.settings.snap_to_grid(item.pos())
+                    item.setPos(snapped_pos)
+                # Update labels if it's a component with labels
+                if hasattr(item, '_update_label_positions'):
+                    item._update_label_positions()
+            
+            # Clear multi-drag state
+            self._multi_drag_mode = False
+            self._selected_items_start_positions = {}
+            event.accept()
+            return
+        
+        super().mouseReleaseEvent(event)

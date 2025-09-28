@@ -4,7 +4,7 @@ Extends BaseComponent with configuration-driven dimensions and properties
 """
 
 from PyQt6.QtWidgets import QStyleOptionGraphicsItem, QWidget
-from PyQt6.QtCore import QRectF, Qt
+from PyQt6.QtCore import QRectF, Qt, QTimer
 from PyQt6.QtGui import QPainter, QPainterPath, QPen, QFont, QFontMetrics
 from PyQt6.QtSvg import QSvgRenderer
 from .base import BaseComponent
@@ -41,6 +41,9 @@ class ConfigurableComponent(BaseComponent):
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, True)
         # Don't set ItemSendsGeometryChanges to avoid Qt's selection behavior
+        
+        # Highlighting state
+        self._is_highlighted = False
     
     def _initialize_dimensions(self):
         """Initialize component dimensions from configuration"""
@@ -275,41 +278,101 @@ class ConfigurableComponent(BaseComponent):
             self.update()
     
     def _draw_selection_indicator(self, painter: QPainter):
-        """Draw a transparent dotted blue selection indicator around the component"""
+        """Draw an enhanced selection indicator around the component"""
         if not self.isSelected():
             return
         
         # Save painter state
         painter.save()
         
-        # Create a transparent blue dotted pen
         from PyQt6.QtGui import QColor
-        blue_color = QColor(0, 0, 255, 128)  # Blue with 50% transparency
-        selection_pen = QPen(blue_color, 1, Qt.PenStyle.DotLine)
-        painter.setPen(selection_pen)
         
-        # Ensure no brush is used - completely transparent
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        
-        # Draw selection rectangle slightly outside component bounds
-        margin = 3
+        # Draw selection rectangle with enhanced visual feedback
+        margin = 4
         x = -self._width // 2 - margin
         y = -self._height // 2 - margin
         w = self._width + 2 * margin
         h = self._height + 2 * margin
         
-        # Draw the outline rectangle with dotted lines
+        # Draw outer glow effect
+        glow_pen = QPen(QColor(100, 150, 255, 60), 3)
+        painter.setPen(glow_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(int(x - 1), int(y - 1), int(w + 2), int(h + 2))
+        
+        # Draw main selection border
+        blue_color = QColor(0, 100, 255, 180)  # Brighter blue with more opacity
+        selection_pen = QPen(blue_color, 2, Qt.PenStyle.SolidLine)
+        painter.setPen(selection_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(int(x), int(y), int(w), int(h))
+        
+        # Draw corner handles for resize indication
+        handle_size = 6
+        handle_color = QColor(0, 100, 255, 255)
+        handle_pen = QPen(handle_color, 1)
+        painter.setPen(handle_pen)
+        painter.setBrush(handle_color)
+        
+        # Draw corner handles
+        corners = [
+            (x, y),  # Top-left
+            (x + w, y),  # Top-right
+            (x, y + h),  # Bottom-left
+            (x + w, y + h)  # Bottom-right
+        ]
+        
+        for corner_x, corner_y in corners:
+            painter.drawRect(int(corner_x - handle_size//2), int(corner_y - handle_size//2), 
+                           handle_size, handle_size)
+        
+        # Restore painter state
+        painter.restore()
+    
+    def _draw_highlight_indicator(self, painter: QPainter):
+        """Draw a subtle highlight indicator for connected components"""
+        # Save painter state
+        painter.save()
+        
+        from PyQt6.QtGui import QColor
+        
+        # Draw subtle highlight background
+        highlight_color = QColor(255, 255, 200, 80)  # Light yellow with transparency
+        painter.setBrush(highlight_color)
+        painter.setPen(Qt.PenStyle.NoPen)
+        
+        # Draw highlight rectangle slightly inside component bounds
+        margin = 2
+        x = -self._width // 2 + margin
+        y = -self._height // 2 + margin
+        w = self._width - 2 * margin
+        h = self._height - 2 * margin
+        
         painter.drawRect(int(x), int(y), int(w), int(h))
         
         # Restore painter state
         painter.restore()
+    
+    def set_highlighted(self, highlighted: bool):
+        """Set the highlighted state of the component"""
+        if self._is_highlighted != highlighted:
+            self._is_highlighted = highlighted
+            self.update()  # Trigger repaint
+    
+    def is_highlighted(self) -> bool:
+        """Check if the component is highlighted"""
+        return self._is_highlighted
     
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None):
         """Override paint to control selection appearance and eliminate red rectangle"""
         # Completely disable Qt's built-in selection rectangle
         # Don't call super().paint() or any parent paint methods
         
-        # Call the subclass paint method first to draw the component
+        # Draw highlight background first if highlighted
+        if self._is_highlighted:
+            self._draw_highlight_indicator(painter)
+        
+        # Call the subclass paint method to draw the component
         self._paint_component(painter, option, widget)
         
         # Draw our custom selection indicator last (on top) - only if selected
@@ -325,5 +388,13 @@ class ConfigurableComponent(BaseComponent):
         if change == self.GraphicsItemChange.ItemSelectedChange:
             # Don't let Qt handle selection changes - we'll handle it ourselves
             return value
-        
+        elif change == self.GraphicsItemChange.ItemSceneChange:
+            # Component is being added to or removed from scene
+            if value and hasattr(self, '_create_labels'):
+                # Component added to scene - create labels
+                QTimer.singleShot(0, self._create_labels)
+            elif not value and hasattr(self, '_cleanup_labels'):
+                # Component removed from scene - cleanup labels
+                self._cleanup_labels()
+
         return super().itemChange(change, value)

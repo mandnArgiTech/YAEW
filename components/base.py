@@ -177,7 +177,10 @@ class BaseComponent(QGraphicsItem):
     def mousePressEvent(self, event):
         """Handle mouse press events"""
         if event.button() == Qt.MouseButton.LeftButton:
-            self.setSelected(True)
+            # Don't force selection - let Qt handle multi-selection properly
+            # Only set selected if no modifier keys are pressed (for single selection)
+            if not (event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)):
+                self.setSelected(True)
             # Store the initial click position for dragging
             self._drag_start_pos = event.pos()
         super().mousePressEvent(event)

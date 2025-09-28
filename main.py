@@ -7,7 +7,7 @@ A circuit simulator and schematic editor built with PyQt6
 import sys
 import json
 from PyQt6.QtWidgets import QApplication, QMainWindow, QGraphicsView, QToolBar, QMenuBar, QStatusBar, QVBoxLayout, QWidget, QFileDialog, QMessageBox, QLabel, QComboBox
-from PyQt6.QtCore import Qt, QMimeData
+from PyQt6.QtCore import Qt, QMimeData, QTimer
 from PyQt6.QtGui import QAction, QKeySequence
 from ui.schematic_scene import SchematicScene
 from ui.schematic_view import SchematicView
@@ -24,6 +24,12 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("PyEWB - Python Electronics Workbench")
         self.setGeometry(100, 100, 1200, 800)
+        
+        # Start maximized for better workspace
+        self.setWindowState(self.windowState() | Qt.WindowState.WindowMaximized)
+        
+        # Set up initial view after window is shown
+        QTimer.singleShot(100, self.setup_initial_view)
         
         # Wire mode state
         self.wire_mode = False
@@ -56,6 +62,7 @@ class MainWindow(QMainWindow):
         self.scene.component_added.connect(self.on_component_added)
         self.scene.wire_added.connect(self.on_wire_added)
         self.graphics_view.coordinate_updated.connect(self.on_coordinate_updated)
+        self.graphics_view.zoom_changed.connect(self.update_zoom_display)
         
         # Set focus policy to receive key events
         self.graphics_view.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -82,7 +89,41 @@ class MainWindow(QMainWindow):
         self.coord_label = QLabel("X: 0.00 mils, Y: 0.00 mils")
         self.status_bar.addPermanentWidget(self.coord_label)
         
+        # Add component count label
+        self.component_count_label = QLabel("Components: 0")
+        self.status_bar.addPermanentWidget(self.component_count_label)
+        
+        # Add grid info label
+        self.grid_info_label = QLabel("Grid: 30 mils")
+        self.status_bar.addPermanentWidget(self.grid_info_label)
+        
+        # Add mode label
+        self.mode_label = QLabel("Mode: Select")
+        self.status_bar.addPermanentWidget(self.mode_label)
+        
+        # Add zoom level label
+        self.zoom_label = QLabel("Zoom: 100%")
+        self.status_bar.addPermanentWidget(self.zoom_label)
+        
         self.status_bar.showMessage("Ready")
+    
+    def setup_initial_view(self):
+        """Set up the initial view with 160% zoom when no components are present"""
+        # Check if there are any components in the scene
+        component_count = len(self.scene.get_components())
+        
+        if component_count == 0:
+            # No components - set zoom to 160%
+            self.graphics_view.resetTransform()
+            self.graphics_view.scale(1.6, 1.6)
+            self.graphics_view._zoom_factor = 1.6
+            self.update_zoom_display(1.6)
+            self.status_bar.showMessage("Initial view set - Zoom: 160% (no components)")
+        else:
+            # Components present - use optimal zoom for 25 components
+            zoom_factor = self.graphics_view.set_optimal_zoom_for_components(25)
+            self.update_zoom_display(zoom_factor)
+            self.status_bar.showMessage(f"Initial view set - Zoom: {zoom_factor:.2f}x (shows ~25 components)")
     
     def create_menu_bar(self):
         """Create the application menu bar"""
@@ -213,12 +254,14 @@ class MainWindow(QMainWindow):
         self.wire_action.triggered.connect(self.toggle_wire_mode)
         self.wire_action.setCheckable(True)
         self.wire_action.setShortcut('W')
+        self.wire_action.setToolTip('Wire Tool - Draw connections (W)')
         self.toolbar.addAction(self.wire_action)
         
         self.toolbar.addSeparator()
         
         # Add component actions
         resistor_action = QAction('Resistor', self)
+        resistor_action.setToolTip('Add Resistor (R)')
         resistor_action.triggered.connect(self.add_resistor)
         self.toolbar.addAction(resistor_action)
         
@@ -290,12 +333,14 @@ class MainWindow(QMainWindow):
             self.scene.set_wire_mode(True)
             self.status_bar.showMessage("Wire mode: Click on component terminals to draw wires. Press ESC to exit.")
             self.wire_action.setText("Exit Wire Mode")
+            self.update_mode_display("Wire")
         else:
             # Exit wire mode
             self.graphics_view.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
             self.scene.set_wire_mode(False)
             self.status_bar.showMessage("Ready")
             self.wire_action.setText("Wire Tool")
+            self.update_mode_display("Select")
     
     def add_resistor(self):
         """Add a resistor to the scene"""
@@ -311,6 +356,7 @@ class MainWindow(QMainWindow):
         self.command_manager.execute_command(command)
         
         self.status_bar.showMessage(f"Added resistor: {resistor.name}")
+        self.update_component_count()
     
     def add_dc_voltage(self):
         """Add a DC voltage source to the scene"""
@@ -325,6 +371,7 @@ class MainWindow(QMainWindow):
         self.command_manager.execute_command(command)
         
         self.status_bar.showMessage(f"Added DC voltage source: {dc_source.name}")
+        self.update_component_count()
     
     def add_ac_voltage(self):
         """Add an AC voltage source to the scene"""
@@ -339,6 +386,7 @@ class MainWindow(QMainWindow):
         self.command_manager.execute_command(command)
         
         self.status_bar.showMessage(f"Added AC voltage source: {ac_source.name}")
+        self.update_component_count()
     
     def add_pulse_source(self):
         """Add a pulse source to the scene"""
@@ -353,6 +401,7 @@ class MainWindow(QMainWindow):
         self.command_manager.execute_command(command)
         
         self.status_bar.showMessage(f"Added pulse source: {pulse_source.name}")
+        self.update_component_count()
     
     def on_units_changed(self, unit_text):
         """Handle unit system change"""
@@ -364,6 +413,7 @@ class MainWindow(QMainWindow):
             
             # Update all components to match new grid size
             self.update_all_component_dimensions()
+            self.update_grid_info()
             
             # Update coordinate display
             self.update_coordinate_display()
@@ -408,17 +458,21 @@ class MainWindow(QMainWindow):
         """Zoom in"""
         self.graphics_view.zoom_in()
         zoom_factor = self.graphics_view.get_zoom_factor()
+        self.update_zoom_display(zoom_factor)
         self.status_bar.showMessage(f"Zoom: {zoom_factor:.1f}x")
     
     def zoom_out(self):
         """Zoom out"""
         self.graphics_view.zoom_out()
         zoom_factor = self.graphics_view.get_zoom_factor()
+        self.update_zoom_display(zoom_factor)
         self.status_bar.showMessage(f"Zoom: {zoom_factor:.1f}x")
     
     def zoom_to_fit(self):
         """Zoom to fit all items"""
         self.graphics_view.zoom_to_fit()
+        zoom_factor = self.graphics_view.get_zoom_factor()
+        self.update_zoom_display(zoom_factor)
         self.status_bar.showMessage("Zoomed to fit")
     
     def on_component_added(self, component):
@@ -697,6 +751,65 @@ class MainWindow(QMainWindow):
             self.toggle_snap_to_grid()
         else:
             super().keyPressEvent(event)
+    
+    def update_component_count(self):
+        """Update component count in status bar"""
+        count = len(self.scene.get_components())
+        self.component_count_label.setText(f"Components: {count}")
+    
+    def update_grid_info(self):
+        """Update grid information in status bar"""
+        grid_size = self.scene.settings.grid_size
+        unit = self.scene.settings.unit_system
+        self.grid_info_label.setText(f"Grid: {grid_size} {unit}")
+    
+    def update_mode_display(self, mode):
+        """Update mode display in status bar"""
+        self.mode_label.setText(f"Mode: {mode}")
+    
+    def update_zoom_display(self, zoom_factor):
+        """Update zoom level display in status bar"""
+        zoom_percent = int(zoom_factor * 100)
+        self.zoom_label.setText(f"Zoom: {zoom_percent}%")
+    
+    def closeEvent(self, event):
+        """Handle application close event - save final label positions"""
+        print("\n=== SAVING FINAL LABEL POSITIONS ===")
+        
+        # Collect label positions from all resistor components
+        resistor_components = []
+        for item in self.scene.items():
+            if hasattr(item, 'component_type') and item.component_type == 'resistor':
+                if hasattr(item, 'get_final_label_positions'):
+                    positions = item.get_final_label_positions()
+                    resistor_components.append({
+                        'name': item.name,
+                        'positions': positions
+                    })
+                    print(f"Resistor {item.name}:")
+                    print(f"  Name offset: ({positions['name_offset']['x']:.1f}, {positions['name_offset']['y']:.1f})")
+                    print(f"  Value offset: ({positions['value_offset']['x']:.1f}, {positions['value_offset']['y']:.1f})")
+        
+        if resistor_components:
+            # Calculate average positions
+            avg_name_x = sum(comp['positions']['name_offset']['x'] for comp in resistor_components) / len(resistor_components)
+            avg_name_y = sum(comp['positions']['name_offset']['y'] for comp in resistor_components) / len(resistor_components)
+            avg_value_x = sum(comp['positions']['value_offset']['x'] for comp in resistor_components) / len(resistor_components)
+            avg_value_y = sum(comp['positions']['value_offset']['y'] for comp in resistor_components) / len(resistor_components)
+            
+            print(f"\n=== AVERAGE LABEL POSITIONS ===")
+            print(f"Name offset: ({avg_name_x:.1f}, {avg_name_y:.1f})")
+            print(f"Value offset: ({avg_value_x:.1f}, {avg_value_y:.1f})")
+            print(f"\n=== CODE TO UPDATE DEFAULTS ===")
+            print(f"self._name_offset = QPointF({avg_name_x:.1f}, {avg_name_y:.1f})")
+            print(f"self._value_offset = QPointF({avg_value_x:.1f}, {avg_value_y:.1f})")
+        else:
+            print("No resistor components found to analyze.")
+        
+        print("=== END LABEL POSITIONS ===\n")
+        
+        # Call the parent close event
+        super().closeEvent(event)
 
 
 def main():

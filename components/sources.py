@@ -124,25 +124,25 @@ class VoltageSourceBase(BaseComponent):
         painter.setFont(font)
         painter.setPen(Qt.GlobalColor.black)
         
-        # Draw component name
+        # Draw component name - closer to component
         name_text = self.name if self.name else "V"
-        name_rect = QRectF(-self._radius, -self._radius - 20, 
+        name_rect = QRectF(-self._radius, -self._radius - 12, 
                           self._radius * 2, 12)
         painter.drawText(name_rect, Qt.AlignmentFlag.AlignCenter, name_text)
         
-        # Draw voltage value from properties
+        # Draw voltage value from properties - closer to component
         voltage_value = self.properties.get('Voltage', self.value or '5V')
-        value_rect = QRectF(-self._radius, self._radius + 8, 
+        value_rect = QRectF(-self._radius, self._radius + 2, 
                            self._radius * 2, 12)
         painter.drawText(value_rect, Qt.AlignmentFlag.AlignCenter, voltage_value)
     
     def boundingRect(self) -> QRectF:
         """Return the bounding rectangle of the voltage source"""
-        margin = 10
+        margin = 8
         return QRectF(-self._radius - margin, 
-                     -self._radius - self._terminal_length - margin, 
+                     -self._radius - self._terminal_length - margin - 12,  # Space for name label
                      (self._radius + margin) * 2, 
-                     (self._radius + self._terminal_length + margin) * 2)
+                     (self._radius + self._terminal_length + margin) * 2 + 15)  # Space for value label
     
     def shape(self) -> QPainterPath:
         """Return the shape of the voltage source for collision detection"""
