@@ -1,0 +1,187 @@
+# Prompt_Schematic_Capture_Application_Implementation_Plan.txt
+
+# Goal: To design and implement the main Schematic Capture application. This application will integrate the symbol library, the interactive canvas, the wiring tool, and the symbol editor. It will provide a complete environment for creating, editing, and verifying electronic schematics, and for exporting logical data like netlists and Bills of Materials (BOM).
+
+# Context: This is the top-level plan that orchestrates all previously defined modules. It assumes the existence of a symbol library parser, a robust canvas, a wiring tool, and a symbol editor.
+
+---
+
+### I. Core Application Architecture and Data Model
+
+A clean separation between data and presentation is critical for a stable application.
+
+1.  **Implement the `SchematicDocument` Class (The "Model"):**
+    * Create a central data class that represents a single schematic design. This class is the **single source of truth** and contains no UI code.
+    * **Contents:**
+        * A list of all placed symbol instances (component objects with properties like reference, value, position, rotation).
+        * A comprehensive netlist data structure that tracks all connections. This should be automatically updated as wires are added/removed.
+        * Sheet properties (size, title block information, revision).
+    * **Careful Consideration:** This object will be what gets saved to and loaded from a project file. It will also be the input for the Netlister, BOM Generator, and DRC engine.
+
+2.  **Implement the `UndoFramework`:**
+    * The main application controller must manage a global Undo/Redo stack.
+    * Every action that modifies the `SchematicDocument` (placing a component, drawing a wire, changing a property) must be encapsulated in a `Command` object and pushed onto this stack.
+
+---
+
+### II. Main Window UI and Layout
+
+This defines the user's primary workspace.
+
+1.  **Implement the `MainWindow` (e.g., using `QMainWindow`):**
+    * **Central Canvas:** The main area will be the interactive `SchematicCanvas` widget defined previously.
+    * **Left Panel - Symbol Library Browser:**
+        * Implement a `SymbolLibraryPanel` (e.g., a `QTreeView`).
+        * Use the `KiCadSymbolLoader` to populate this tree with all available symbols, organized by library name.
+        * Add a search bar at the top to filter symbols by name or keywords.
+    * **Right Panel - Properties and Selection Inspector:**
+        * Implement a `PropertiesPanel`. When a component, wire, or pin is selected on the canvas, this panel displays all its properties and allows them to be edited directly.
+    * **Toolbars:**
+        * **File/Project Toolbar:** New, Open, Save, Print, Export Netlist.
+        * **View Toolbar:** Zoom In, Zoom Out, Zoom to Fit.
+        * **Editing Toolbar:** The primary toolbar for schematic creation: `Select Tool`, `Place Component Tool`, `Wire Tool`, `Place Net Label Tool`, `Place Power Port Tool` (for VCC/GND), `Design Rule Check (DRC) Tool`.
+    * **Status Bar:** To display cursor grid coordinates, net names, and contextual tool hints.
+
+---
+
+### III. Core User Actions and Tools
+
+These are the primary functions triggered from the Editing Toolbar.
+
+1.  **Implement the "Place Component" Workflow:**
+    * **Trigger:** Dragging or double-clicking a symbol in the `SymbolLibraryPanel`.
+    * **Action:**
+        * The application enters the "Place Component" state.
+        * A "ghost" image of the symbol follows the snapped cursor position.
+        * The `R` key must rotate the ghosted symbol in 90-degree increments. `X` and `Y` keys should mirror it.
+        * A click places a component instance into the `SchematicDocument` and automatically increments its reference designator (e.g., R1 -> R2). The tool remains active to place more components of the same type.
+        * `Escape` key exits the placement mode.
+
+2.  **Implement "Place Net Label" and "Place Power Port" Tools:**
+    * These tools allow the user to place special text objects that assign a name to a wire (net).
+    * Power Ports (VCC, GND) are special net labels that are implicitly connected to all other ports with the same name.
+    * **Careful Consideration:** Your netlist engine must correctly interpret these labels to form global connections.
+
+---
+
+### IV. Logical Outputs and Verification (The "EDA" Power Tools)
+
+This is what turns a drawing program into a design tool.
+
+1.  **Implement the Netlist Generator:**
+    * Create a `NetlistGenerator` module that takes the `SchematicDocument` as input.
+    * **Functionality:**
+        * Traverses all wires, pins, and net labels to build a complete graph of electrical connectivity.
+        * Exports the graph into a standard format, primarily a **SPICE Netlist**.
+        * The generator must call each component's `get_spice_model()` method to get its correct representation.
+
+2.  **Implement the Bill of Materials (BOM) Generator:**
+    * Create a `BomGenerator` module.
+    * **Functionality:**
+        * Scans the `SchematicDocument` for all component instances.
+        * Groups components by their `Value` and `Footprint`.
+        * Generates a report (e.g., CSV file) with columns for Quantity, Reference Designators (e.g., R1, R2, R5), Value, and Footprint.
+
+3.  **Implement the Design Rule Checker (DRC):**
+    * Create a `DrcEngine` module.
+    * **Functionality:** Runs a series of checks on the `SchematicDocument` and generates a clickable list of errors/warnings.
+    * **Essential Rules to Implement:**
+        * **Unconnected Pins:** Flags any electrical pin that is not connected to a wire (unless explicitly marked with a "No Connect" flag).
+        * **Multiple Outputs on One Net:** Flags nets that have two or more `Output` or `Power Output` pins connected together.
+        * **Nets with No Driving Source:** Flags nets that are only connected to `Input` and `Passive` pins.
+		
+		
+# Hyper-Detailed Implementation Plan: The 'Place Component' Workflow
+
+# Goal: To provide a complete, robust, and detailed specification for implementing the "Place Component" feature. This covers the entire lifecycle, from user trigger to final placement in the schematic document, with careful consideration for state management, user experience, and architectural best practices.
+
+---
+
+### I. Architectural Foundation and Prerequisites
+
+Before implementing the workflow, ensure these architectural pieces are in place:
+
+1.  **The State Machine:** The main application controller MUST operate as a state machine. The placement workflow is a dedicated state.
+    * **Required States:** `IDLE` (or `SELECT`), and `COMPONENT_PLACEMENT`.
+    * **Implementation:** All user input events (mouse, keyboard) on the canvas are first handled by the current state. This prevents conflicting actions.
+
+2.  **The "Ghost" Component:**
+    * Create a dedicated class, e.g., `GhostComponent`, which inherits from your base graphics item (like `QGraphicsItem`).
+    * This is a **temporary, lightweight visual object**. It is NOT part of the official `SchematicDocument` and has no logical properties (like a reference designator).
+    * It takes symbol drawing data as input to render its appearance. It must have methods to update its position, rotation, and mirror state instantly.
+
+3.  **The Reference Designator Manager:**
+    * The `SchematicDocument` must have a method `get_next_reference_designator(prefix)`, e.g., `get_next_reference_designator("R")`.
+    * **Implementation:** This method scans all existing components in the document, finds all designators with the given prefix (e.g., "R1", "R2", "R10"), parses the numbers, finds the maximum, and returns a string for the next one (e.g., "R11"). This logic is crucial for preventing duplicate designators.
+
+---
+
+### II. Triggering the Workflow (The Entry Points)
+
+1.  **Trigger 1: Double-Click from `SymbolLibraryPanel`**
+    * **Event Handler:** The `QTreeView` (or similar widget) in your library panel needs a `doubleClicked` signal handler.
+    * **Action Flow:**
+        1.  The handler identifies the selected item and retrieves its unique symbol name (e.g., "LM7805_TO-220").
+        2.  It fetches the full symbol data (the parsed S-expression) from the `KiCadSymbolLoader`'s dictionary.
+        3.  It calls a method on the main controller, like `controller.enter_placement_mode(symbol_data)`.
+        4.  The controller transitions the state machine to `COMPONENT_PLACEMENT`.
+
+2.  **Trigger 2: Drag-and-Drop from `SymbolLibraryPanel`**
+    * **Implementation:**
+        1.  The `SymbolLibraryPanel` must initiate a drag operation. The `QMimeData` for the drag should contain the symbol name as plain text (e.g., `setData("text/plain", "LM7805_TO-220")`).
+        2.  The `SchematicCanvas` (`QGraphicsView`) must be configured to accept drops (`setAcceptDrops(True)`).
+        3.  Implement `dragEnterEvent` on the canvas to check if the MIME data is valid and show a "copy" cursor.
+        4.  Implement `dropEvent`. This is the key handler. It reads the symbol name from the MIME data, fetches the full symbol data, and then calls `controller.enter_placement_mode(symbol_data)`, immediately snapping the new component to the drop location.
+
+---
+
+### III. The `COMPONENT_PLACEMENT` State: A Detailed Breakdown
+
+This is the active state where the user is positioning the component.
+
+1.  **On Entering the State (`enter_placement_mode`):**
+    * The main controller receives the `symbol_data`.
+    * It instantiates the `GhostComponent`, passing the `symbol_data` for rendering.
+    * It adds the `GhostComponent` to the `QGraphicsScene`. The ghost is initially hidden or placed far away.
+    * A state variable, `current_transform`, is initialized (e.g., rotation=0, mirror_x=False, mirror_y=False).
+
+2.  **Handling `mouseMoveEvent`:**
+    * This event is now continuously active on the canvas.
+    * **Action Flow:**
+        1.  Make the `GhostComponent` visible if it was hidden.
+        2.  Get the mouse cursor's position in Scene coordinates.
+        3.  Call your snapping function `get_snapped_point()` to get the valid grid position.
+        4.  Call `ghost_component.setPos(snapped_point)` to update its position in real-time. This provides the "following the cursor" effect.
+
+3.  **Handling `keyPressEvent` (Rotation & Mirroring):**
+    * The canvas must have focus to receive key presses.
+    * **If key is `R`:**
+        1.  Update the state: `current_transform.rotation = (current_transform.rotation + 90) % 360`.
+        2.  Apply this new rotation to the `GhostComponent`'s transformation matrix.
+    * **If key is `X`:**
+        1.  Update the state: `current_transform.mirror_x = not current_transform.mirror_x`.
+        2.  Apply a horizontal flip (a `scale(-1, 1)`) to the `GhostComponent`'s transformation. Be careful to combine this with any existing rotation correctly.
+    * **If key is `Y`:**
+        1.  Update the state: `current_transform.mirror_y = not current_transform.mirror_y`.
+        2.  Apply a vertical flip (a `scale(1, -1)`) to the `GhostComponent`'s transformation.
+
+4.  **Handling `mousePressEvent` (The Placement Action):**
+    * This is the commit step.
+    * **Action Flow (Must happen in this order):**
+        1.  **Instantiate Real Component:** Create a full instance of your main component class (e.g., `SchematicComponent`).
+        2.  **Set Data:** Populate the new instance with:
+            * The original `symbol_data`.
+            * The current snapped position.
+            * The final `current_transform` (rotation and mirror state).
+        3.  **Get Reference Designator:** Call the `document.get_next_reference_designator()` method using the symbol's default prefix (e.g., "R", "U") to get the next available ID (e.g., "R14"). Assign this to the component instance.
+        4.  **Create Command:** Instantiate a `PlaceComponentCommand(new_component_instance)`.
+        5.  **Execute:** Push the command to the Undo/Redo stack and call its `execute()` method. The `execute()` method is what formally adds the component to the `SchematicDocument` model.
+        6.  **Update View:** The `SchematicDocument` should emit a `componentAdded` signal. The canvas listens for this and creates the final, permanent `QGraphicsItem` for the new component.
+        7.  **Persist Mode:** The state **remains** `COMPONENT_PLACEMENT`. The ghost component is still visible and continues to follow the cursor, allowing the user to place multiple components in a row (e.g., a series of resistors). The reference designator will be automatically incremented for the next placement.
+
+5.  **Handling Exit Conditions:**
+    * **`Escape` Key or Right Mouse Click:**
+        1.  The controller receives the event.
+        2.  The `GhostComponent` is removed from the `QGraphicsScene` and destroyed.
+        3.  The controller transitions the state machine back to `IDLE` or `SELECT`.
+        4.  The mouse cursor is returned to its standard arrow shape.

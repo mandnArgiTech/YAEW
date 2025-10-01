@@ -1,6 +1,6 @@
 """
 Wire component for PyEWB
-Represents connections between component terminals
+Represents connections between component terminals with right-angle bends
 """
 
 from PyQt6.QtWidgets import QGraphicsItem, QStyleOptionGraphicsItem, QWidget
@@ -10,7 +10,7 @@ from .base import BaseComponent
 
 
 class Wire(QGraphicsItem):
-    """Wire connecting two component terminals"""
+    """Wire connecting two component terminals with right-angle bends"""
     
     def __init__(self, start_terminal=None, end_terminal=None):
         super().__init__()
@@ -20,6 +20,13 @@ class Wire(QGraphicsItem):
         self._start_point = QPointF(0, 0)
         self._end_point = QPointF(0, 0)
         self._is_temporary = False  # True when drawing wire
+        
+        # Multi-segment support for right-angle bends
+        self._segments = []  # List of QPointF for segment points
+        self._current_drawing_point = QPointF(0, 0)  # Current mouse position during drawing
+        
+        # Snap feedback
+        self._snap_info = {'snapped': False, 'type': 'none', 'distance': 0}
         
         # Enable selection
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -80,40 +87,139 @@ class Wire(QGraphicsItem):
         self._is_temporary = value
         self.update()
     
+    def add_segment(self, point: QPointF):
+        """Add a segment point for right-angle routing"""
+        self._segments.append(point)
+        self.update()
+    
+    def set_current_drawing_point(self, point: QPointF):
+        """Set the current mouse position during wire drawing"""
+        self._current_drawing_point = point
+        self.update()
+    
+    def set_snap_info(self, snap_info: dict):
+        """Set snap information for visual feedback"""
+        self._snap_info = snap_info
+        self.update()
+    
+    def clear_segments(self):
+        """Clear all segment points"""
+        self._segments.clear()
+        self.update()
+    
+    def get_wire_path(self) -> list:
+        """Get the complete wire path including segments and current drawing point"""
+        path_points = []
+        
+        # Start from the first terminal
+        path_points.append(self._start_point)
+        
+        # Add all segment points
+        path_points.extend(self._segments)
+        
+        # Add current drawing point if in temporary mode
+        if self._is_temporary:
+            path_points.append(self._current_drawing_point)
+        else:
+            # Add end terminal point for completed wires
+            path_points.append(self._end_point)
+        
+        return path_points
+    
+    def _calculate_right_angle_bend(self, start: QPointF, end: QPointF) -> QPointF:
+        """Calculate the intermediate point for a right-angle bend"""
+        # Simple right-angle routing: first horizontal, then vertical
+        return QPointF(end.x(), start.y())
+    
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None):
-        """Paint the wire"""
+        """Paint the wire with right-angle bends"""
         # Set up painter
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # Set pen based on state
+        # Set pen based on state and snap feedback
         if self.isSelected():
             pen = QPen(Qt.GlobalColor.red, 3)
         elif self._is_temporary:
-            pen = QPen(Qt.GlobalColor.gray, 2, Qt.PenStyle.DashLine)
+            # Show different colors based on snap type
+            if self._snap_info.get('snapped', False):
+                if self._snap_info.get('type') == 'terminal':
+                    pen = QPen(Qt.GlobalColor.blue, 2, Qt.PenStyle.DashLine)  # Blue for terminal snap
+                elif self._snap_info.get('type') == 'grid':
+                    pen = QPen(Qt.GlobalColor.green, 2, Qt.PenStyle.DashLine)  # Green for grid snap
+                else:
+                    pen = QPen(Qt.GlobalColor.gray, 2, Qt.PenStyle.DashLine)
+            else:
+                pen = QPen(Qt.GlobalColor.gray, 2, Qt.PenStyle.DashLine)
         else:
             pen = QPen(Qt.GlobalColor.black, 2)
         
         painter.setPen(pen)
         
-        # Draw the wire line
-        painter.drawLine(self._start_point, self._end_point)
+        # Get the complete wire path
+        path_points = self.get_wire_path()
+        
+        # Draw the wire with right-angle bends
+        if len(path_points) >= 2:
+            # Start from first point
+            current_point = path_points[0]
+            
+            # Draw each segment
+            for i in range(1, len(path_points)):
+                next_point = path_points[i]
+                
+                # For simple two-point wires, draw direct line
+                if len(path_points) == 2:
+                    painter.drawLine(current_point, next_point)
+                else:
+                    # For multi-segment wires, calculate right-angle bends
+                    if i == 1:  # First segment from start
+                        bend_point = self._calculate_right_angle_bend(current_point, next_point)
+                        painter.drawLine(current_point, bend_point)
+                        painter.drawLine(bend_point, next_point)
+                    elif i == len(path_points) - 1:  # Last segment to end
+                        bend_point = self._calculate_right_angle_bend(current_point, next_point)
+                        painter.drawLine(current_point, bend_point)
+                        painter.drawLine(bend_point, next_point)
+                    else:
+                        # Intermediate segments - draw direct line
+                        painter.drawLine(current_point, next_point)
+                
+                current_point = next_point
     
     def boundingRect(self) -> QRectF:
         """Return the bounding rectangle of the wire"""
+        path_points = self.get_wire_path()
+        
+        if not path_points:
+            return QRectF()
+        
+        # Calculate bounds from all points
+        min_x = min(p.x() for p in path_points)
+        min_y = min(p.y() for p in path_points)
+        max_x = max(p.x() for p in path_points)
+        max_y = max(p.y() for p in path_points)
+        
         # Add some margin for the pen width
         margin = 2
         return QRectF(
-            min(self._start_point.x(), self._end_point.x()) - margin,
-            min(self._start_point.y(), self._end_point.y()) - margin,
-            abs(self._end_point.x() - self._start_point.x()) + 2 * margin,
-            abs(self._end_point.y() - self._start_point.y()) + 2 * margin
+            min_x - margin,
+            min_y - margin,
+            max_x - min_x + 2 * margin,
+            max_y - min_y + 2 * margin
         )
     
     def shape(self) -> QPainterPath:
         """Return the shape of the wire for collision detection"""
         path = QPainterPath()
-        path.moveTo(self._start_point)
-        path.lineTo(self._end_point)
+        path_points = self.get_wire_path()
+        
+        if len(path_points) >= 2:
+            path.moveTo(path_points[0])
+            
+            # Create path with all segments
+            for i in range(1, len(path_points)):
+                path.lineTo(path_points[i])
+        
         return path
     
     def update_position(self):

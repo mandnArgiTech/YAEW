@@ -1,0 +1,98 @@
+# Prompt_Wiring_Tool_Implementation_Plan.txt
+
+# Goal: To implement a professional-grade wiring tool for the schematic canvas. This prompt details the required behaviors, architectural patterns, and edge cases that must be handled with extra care to ensure a smooth, intuitive, and bug-free user experience.
+
+---
+
+### I. Architectural Considerations & Core Design (Handle with Extra Care)
+
+Before implementing features, establish a robust foundation. A weak foundation will lead to countless bugs in complex user interactions.
+
+1.  **Implement a State Machine:**
+    * The canvas view or controller must have a formal state machine to manage user interaction. The wiring tool itself is a state.
+    * **States:** `IDLE`, `WIRING_STARTED` (first point clicked), `WIRING_IN_PROGRESS`.
+    * **Careful Consideration:** All mouse and keyboard events should be routed through the state machine. This prevents actions from one state (e.g., component selection) from interfering with another (e.g., placing a wire vertex).
+
+2.  **Separate Data Model from Visuals (MVC Pattern):**
+    * A wire on the screen (the "View," e.g., a `QGraphicsPathItem`) must be a representation of a logical connection in your data model (the "Model," e.g., a `Net` object that contains a list of pins and wire segments).
+    * **Careful Consideration:** User actions modify the Model first. The View then updates in response to changes in the Model. This prevents data inconsistency and makes features like net highlighting and DRC (Design Rule Checks) much easier to implement.
+
+3.  **Use the Command Pattern for Undo/Redo:**
+    * Every action that changes the schematic's state (creating a wire, adding a vertex) must be encapsulated in a `Command` object with `execute()` and `undo()` methods.
+    * **Careful Consideration:** A single "Create Wire" command will contain the creation of the wire in the data model, its visual representation, and the creation of any necessary junctions. The `undo()` method must perfectly reverse all these changes.
+
+---
+
+### II. Core Drawing Mechanics: Implementation Details
+
+1.  **Implement the `StartWiringTool` Action:**
+    * **Trigger:** The 'W' key or a toolbar button.
+    * **Action:**
+        * Set the canvas state to `WIRING_STARTED`.
+        * Change the mouse cursor to a crosshair.
+        * No wire is drawn until the first click.
+
+2.  **Implement the First Click (`mousePressEvent` in `WIRING_STARTED` state):**
+    * **Action:**
+        * Determine the snapped position of the click (see Snapping logic below).
+        * If the click is on a valid pin, store that pin as the starting point.
+        * If on an existing wire, store the wire and position.
+        * Create a new `Wire` object in the data model.
+        * Create its visual representation (e.g., `QGraphicsPathItem`).
+        * Transition the state to `WIRING_IN_PROGRESS`.
+
+3.  **Implement Wire Drawing (`mouseMoveEvent` in `WIRING_IN_PROGRESS` state):**
+    * **Action:**
+        * Get the current snapped mouse position.
+        * Draw a "ghosted" preview of the next two wire segments (e.g., one horizontal, one vertical) from the last placed vertex to the current cursor position.
+        * **Careful Consideration:** This preview must clearly show the 90-degree or 45-degree path the wire will take.
+
+4.  **Implement Vertex Placement (`mousePressEvent` in `WIRING_IN_PROGRESS` state):**
+    * **Action:**
+        * If the click is on a valid endpoint (pin or wire), finalize the wire, create a junction if needed, and transition to `IDLE`.
+        * If the click is in empty space, add a new vertex to the `Wire` object in the model at the snapped position. Update the visual path.
+        * A **double-click** should terminate the wire, leaving an unconnected end.
+
+5.  **Implement Snapping Logic (Critical Priority):**
+    * Create a helper function `get_snapped_point(raw_point)`.
+    * **Order of Precedence:** The function must check for snapping targets in this order:
+        1.  **Pin Endpoint:** If near a component pin, snap directly to the pin's center.
+        2.  **Existing Wire Segment:** If near a wire, snap to the wire's path on the grid.
+        3.  **Grid Point:** If none of the above, snap to the nearest grid point.
+    * **Careful Consideration:** This function will be called constantly. It must be efficient.
+
+---
+
+### III. Intelligent & Context-Aware Behavior: Implementation Details
+
+1.  **Implement Automatic Junctions:**
+    * When a wire is finalized on another wire segment, the `Command` object for creating the wire must also create and place a `Junction` object (both in the model and view) at the connection point.
+
+2.  **Implement Net Highlighting:**
+    * On `mouseMoveEvent`, if the cursor is over a pin or wire, the canvas should query the data model for the corresponding `Net` object and highlight all associated visual items (wires and pins).
+    * **Careful Consideration:** This requires an efficient way to map visual items back to their logical `Net`. A dictionary lookup is ideal.
+
+3.  **Implement "Walkaround" Pathfinding (Advanced):**
+    * In the `mouseMoveEvent` for wire drawing, instead of a simple ghost line, implement a basic A* pathfinding algorithm.
+    * **Grid:** The search space is the schematic grid.
+    * **Obstacles:** The bounding boxes of components and pins are non-traversable nodes.
+    * **Path:** The result is a list of points that becomes the ghosted wire preview. This creates the "auto-routing around components" effect.
+
+---
+
+### IV. Post-Drawing Manipulation & Editing: Implementation Details
+
+1.  **Implement Component Rubber-Banding:**
+    * When a component is moved (in its `mouseMoveEvent`), it must signal that it has moved.
+    * A controller or the scene itself should catch this signal. It will then find all wires connected to the component's pins.
+    * For each wire, it must update the endpoint of the segment connected to the pin.
+    * **Careful Consideration:** The logic must be smart enough to maintain orthogonality. Simply stretching the last segment is not enough. You may need to shorten/lengthen adjacent segments or add/remove vertices to keep the wire looking clean. This is a complex but essential feature.
+
+2.  **Implement Wire and Vertex Dragging:**
+    * Allow the user to select and drag a wire segment or a vertex handle.
+    * **Dragging a segment:** Moves the segment along its axis, shortening and lengthening the perpendicular segments attached to it.
+    * **Dragging a vertex:** Moves the corner point, recalculating the two segments connected to it.
+
+3.  **Implement Automatic "Healing":**
+    * When a component is deleted, its `undo` command must check if it was placed "inline" on a wire.
+    * If so, the command should find the two separate wire segments that were connected to its pins and merge them into a single, continuous wire in the data model.
